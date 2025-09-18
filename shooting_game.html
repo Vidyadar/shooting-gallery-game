@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shooting Gallery</title>
+    <!-- Load Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1f2937;
+            color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        #game-container {
+            position: relative;
+            background-color: #374151;
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            text-align: center;
+        }
+
+        canvas {
+            background-color: #4b5563;
+            border: 2px solid #6b7280;
+            border-radius: 1rem;
+            touch-action: none; /* Prevents mobile browser gestures */
+            width: 100%; /* Make canvas responsive */
+            height: auto;
+            aspect-ratio: 4 / 3; /* Maintain aspect ratio */
+            cursor: crosshair;
+        }
+
+        .info-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            font-size: 1.25rem;
+            font-weight: bold;
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .stat-label {
+            color: #d1d5db;
+        }
+
+        .stat-value {
+            color: #e5e7eb;
+        }
+
+        .message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            z-index: 10;
+        }
+
+        .message-box h2 {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
+
+        .message-box button {
+            background: #2563eb;
+            color: white;
+            padding: 0.75rem 2rem;
+            border-radius: 0.5rem;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+
+        .message-box button:hover {
+            background: #1d4ed8;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1 class="text-3xl font-extrabold mb-4 text-gray-200">Shooting Gallery</h1>
+
+        <!-- Farcaster User Info -->
+        <div id="user-info" class="mb-4 text-gray-400 hidden">
+            <p>Playing as <span id="username" class="font-bold text-gray-200"></span> (<span id="fid" class="text-xs font-mono"></span>)</p>
+        </div>
+
+        <div class="info-panel">
+            <div class="stat">
+                <span class="stat-label">Score:</span>
+                <span id="score-value" class="stat-value">0</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Time:</span>
+                <span id="time-value" class="stat-value">30</span>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="message-overlay" class="hidden message-box">
+            <div id="message-content"></div>
+            <button id="restart-btn" class="mt-4">Restart Game</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Farcaster Mini App SDK
+        import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk';
+
+        // --- Game Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreValue = document.getElementById('score-value');
+        const timeValue = document.getElementById('time-value');
+        const messageOverlay = document.getElementById('message-overlay');
+        const messageContent = document.getElementById('message-content');
+        const restartBtn = document.getElementById('restart-btn');
+        const userInfoContainer = document.getElementById('user-info');
+        const usernameSpan = document.getElementById('username');
+        const fidSpan = document.getElementById('fid');
+
+        let score = 0;
+        let timeRemaining = 30;
+        let gameActive = true;
+        let targets = [];
+        let gameLoopInterval;
+        let targetGenerationInterval;
+        let userFid = null;
+        let userUsername = null;
+
+        // --- Farcaster SDK Integration ---
+        window.onload = async () => {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await sdk.actions.ready();
+            
+            try {
+                const account = await sdk.auth.requestAccount();
+                if (account && account.fid) {
+                    userFid = account.fid;
+                    userUsername = account.username;
+                    fidSpan.textContent = userFid;
+                    usernameSpan.textContent = userUsername;
+                    userInfoContainer.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.warn('Farcaster authentication failed. Continuing without user info.', error);
+            }
+            
+            // Start the game after the app is ready
+            initGame();
+        };
+
+        // --- Game Logic ---
+        class Target {
+            constructor(x, y, radius) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = '#e2e8f0';
+                this.hit = false;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                ctx.shadowBlur = 10;
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        function initGame() {
+            score = 0;
+            timeRemaining = 30;
+            gameActive = true;
+            targets = [];
+            scoreValue.textContent = score;
+            timeValue.textContent = timeRemaining;
+            messageOverlay.classList.add('hidden');
+            
+            // Handle canvas resize
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            // Start game loops
+            gameLoopInterval = setInterval(update, 1000 / 60); // 60 FPS
+            targetGenerationInterval = setInterval(generateTarget, 1000);
+            countdown();
+        }
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.width * 0.75; // 4:3 aspect ratio
+        }
+
+        function generateTarget() {
+            const radius = 25;
+            const x = Math.random() * (canvas.width - radius * 2) + radius;
+            const y = Math.random() * (canvas.height - radius * 2) + radius;
+            targets.push(new Target(x, y, radius));
+        }
+
+        function update() {
+            if (!gameActive) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            targets.forEach(target => {
+                target.draw();
+            });
+        }
+
+        function countdown() {
+            const timer = setInterval(() => {
+                if (!gameActive) {
+                    clearInterval(timer);
+                    return;
+                }
+                timeRemaining--;
+                timeValue.textContent = timeRemaining;
+
+                if (timeRemaining <= 0) {
+                    endGame();
+                    clearInterval(timer);
+                }
+            }, 1000);
+        }
+
+        function endGame() {
+            gameActive = false;
+            clearInterval(gameLoopInterval);
+            clearInterval(targetGenerationInterval);
+
+            messageContent.innerHTML = `<h2 class="text-red-400">Time's Up!</h2><p class="text-xl mt-2">Final Score: <span class="text-green-400 font-bold">${score}</span></p>`;
+            messageOverlay.classList.remove('hidden');
+        }
+
+        function handleShot(event) {
+            if (!gameActive) return;
+
+            // Get mouse/touch coordinates relative to the canvas
+            const rect = canvas.getBoundingClientRect();
+            const clientX = event.clientX || (event.touches ? event.touches[0].clientX : 0);
+            const clientY = event.clientY || (event.touches ? event.touches[0].clientY : 0);
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            // Check for hits
+            targets.forEach((target, index) => {
+                const distance = Math.sqrt((x - target.x) ** 2 + (y - target.y) ** 2);
+                if (distance < target.radius) {
+                    score++;
+                    scoreValue.textContent = score;
+                    // Remove the hit target
+                    targets.splice(index, 1);
+                }
+            });
+        }
+
+        // --- Event Listeners ---
+        canvas.addEventListener('mousedown', handleShot);
+        canvas.addEventListener('touchstart', handleShot);
+        restartBtn.addEventListener('click', initGame);
+    </script>
+</body>
+</html>
