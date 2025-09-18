@@ -30,6 +30,7 @@
         }
 
         canvas {
+            /* Replace the URL below with your image URL */
             background-image: url('https://placehold.co/600x450/4CAF50/FFFFFF?text=Grass+Texture');
             background-size: cover;
             background-position: center;
@@ -175,12 +176,30 @@
         };
 
         // --- Game Logic ---
-        class FrogTarget {
+        class BirdTarget {
             constructor(x, y) {
                 this.x = x;
                 this.y = y;
                 this.radius = TARGET_SIZE / 2;
                 this.emoji = '🐦';
+                // Give it a random velocity
+                this.vx = (Math.random() - 0.5) * 2 * 2; // Random speed between -2 and 2
+                this.vy = (Math.random() - 0.5) * 2 * 2;
+            }
+
+            // Update the position and handle bouncing off walls
+            updatePosition() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Bounce off horizontal walls
+                if (this.x + this.radius > canvas.width || this.x - this.radius < 0) {
+                    this.vx *= -1;
+                }
+                // Bounce off vertical walls
+                if (this.y + this.radius > canvas.height || this.y - this.radius < 0) {
+                    this.vy *= -1;
+                }
             }
 
             draw() {
@@ -214,30 +233,28 @@
         }
 
         function generateTarget() {
-            // Only generate a new target if one doesn't exist
-            if (target) return;
-
             // Clear any existing timeout
             if (targetTimeout) clearTimeout(targetTimeout);
 
             const padding = TARGET_SIZE;
             const x = Math.random() * (canvas.width - padding * 2) + padding;
             const y = Math.random() * (canvas.height - padding * 2) + padding;
-            target = new FrogTarget(x, y);
+            target = new BirdTarget(x, y);
 
             // Timeout to remove the target if it's not hit
             targetTimeout = setTimeout(() => {
                 target = null;
                 // Generate a new target after a short delay
                 setTimeout(generateTarget, 500); 
-            }, 1500); // Target stays for 1.5 seconds
+            }, 1200); // Target stays for 1.2 seconds, down from 1.5s
         }
 
         function update() {
             if (!gameActive) return;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, canvas.width, ctx.canvas.height);
 
             if (target) {
+                target.updatePosition();
                 target.draw();
             }
         }
